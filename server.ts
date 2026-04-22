@@ -30,6 +30,10 @@ function alarmId(subscription: webpush.PushSubscription): string {
   return subscription.endpoint;
 }
 
+app.get('/api/ping', (_req, res) => {
+  res.json({ ok: true });
+});
+
 app.get('/api/vapid-public-key', (_req, res) => {
   res.json({ key: process.env.VAPID_PUBLIC_KEY });
 });

@@ -54,6 +54,14 @@ function swCancelAlarm() {
   });
 }
 
+// Keeps the Render free-tier server awake while timer is running
+function startKeepAlive(): () => void {
+  const id = setInterval(() => {
+    fetch(`${SERVER_URL}/api/ping`).catch(() => {});
+  }, 10 * 60 * 1000); // every 10 minutes
+  return () => clearInterval(id);
+}
+
 // Try server push first; fall back to SW-local setTimeout
 async function scheduleAlarm(targetTimestamp: number) {
   swSendAlarm(targetTimestamp); // always schedule locally as fallback
@@ -88,6 +96,7 @@ export default function App() {
 
   // Use a ref to hold the HTML5 Audio object for mobile reliability
   const audioRef = React.useRef<HTMLAudioElement | null>(null);
+  const stopKeepAliveRef = React.useRef<(() => void) | null>(null);
 
   useEffect(() => {
     // Initialize audio object once
@@ -209,6 +218,7 @@ export default function App() {
     setTimeLeft(setupHours * 3600 + setupMinutes * 60);
     setIsActive(true);
     setView('active');
+    stopKeepAliveRef.current = startKeepAlive();
   };
 
   const handlePause = () => {
@@ -223,6 +233,8 @@ export default function App() {
 
   const handleStop = () => {
     cancelAlarm();
+    stopKeepAliveRef.current?.();
+    stopKeepAliveRef.current = null;
     setIsActive(false);
     setIsFlashing(false);
     setView('setup');
