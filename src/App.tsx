@@ -5,7 +5,6 @@ import {
 } from 'lucide-react';
 
 const SERVER_URL = import.meta.env.VITE_SERVER_URL ?? '';
-const VAPID_PUBLIC_KEY = import.meta.env.VITE_VAPID_PUBLIC_KEY as string | undefined;
 
 function urlBase64ToUint8Array(base64String: string): Uint8Array {
   const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
@@ -14,23 +13,54 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return Uint8Array.from([...raw].map((c) => c.charCodeAt(0)));
 }
 
+// Fetch VAPID key at runtime so it works regardless of build-time env vars
+let _vapidKey: string | null = null;
+async function getVapidKey(): Promise<string | null> {
+  if (_vapidKey) return _vapidKey;
+  // Prefer build-time key if available
+  const buildKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+  if (buildKey) { _vapidKey = buildKey; return _vapidKey; }
+  try {
+    const res = await fetch(`${SERVER_URL}/api/vapid-public-key`);
+    const data = await res.json();
+    _vapidKey = data.key ?? null;
+  } catch (e) {
+    console.error('[Push] Falha ao buscar chave VAPID:', e);
+  }
+  return _vapidKey;
+}
+
 async function getPushSubscription(): Promise<PushSubscription | null> {
-  if (!VAPID_PUBLIC_KEY || !('PushManager' in window)) return null;
-  const reg = await navigator.serviceWorker.ready;
-  const existing = await reg.pushManager.getSubscription();
-  if (existing) return existing;
-  return reg.pushManager.subscribe({
-    userVisibleOnly: true,
-    applicationServerKey: urlBase64ToUint8Array(VAPID_PUBLIC_KEY),
-  });
+  if (!('PushManager' in window) || !navigator.serviceWorker) return null;
+  const vapidKey = await getVapidKey();
+  if (!vapidKey) { console.error('[Push] Chave VAPID não disponível'); return null; }
+  try {
+    const reg = await navigator.serviceWorker.ready;
+    const existing = await reg.pushManager.getSubscription();
+    if (existing) return existing;
+    return await reg.pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: urlBase64ToUint8Array(vapidKey),
+    });
+  } catch (e) {
+    console.error('[Push] Falha ao criar subscricão:', e);
+    return null;
+  }
 }
 
 async function serverScheduleAlarm(subscription: PushSubscription, targetTimestamp: number) {
-  await fetch(`${SERVER_URL}/api/push/subscribe`, {
+  const res = await fetch(`${SERVER_URL}/api/push/subscribe`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ subscription, targetTimestamp }),
-  }).catch(() => {});
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    console.error('[Push] Servidor recusou agendamento:', res.status, text);
+  } else {
+    const data = await res.json();
+    console.log('[Push] Alarme agendado no servidor:', data.firesAt);
+  }
 }
 
 async function serverCancelAlarm(subscription: PushSubscription) {
@@ -58,17 +88,23 @@ function swCancelAlarm() {
 function startKeepAlive(): () => void {
   const id = setInterval(() => {
     fetch(`${SERVER_URL}/api/ping`).catch(() => {});
-  }, 10 * 60 * 1000); // every 10 minutes
+  }, 10 * 60 * 1000);
   return () => clearInterval(id);
 }
 
-// Try server push first; fall back to SW-local setTimeout
+// Try server push first; SW-local setTimeout always runs as fallback
 async function scheduleAlarm(targetTimestamp: number) {
-  swSendAlarm(targetTimestamp); // always schedule locally as fallback
+  swSendAlarm(targetTimestamp);
   try {
     const sub = await getPushSubscription();
-    if (sub) await serverScheduleAlarm(sub, targetTimestamp);
-  } catch {}
+    if (sub) {
+      await serverScheduleAlarm(sub, targetTimestamp);
+    } else {
+      console.warn('[Push] Sem subscricão, usando apenas fallback SW local');
+    }
+  } catch (e) {
+    console.error('[Push] Erro ao agendar no servidor:', e);
+  }
 }
 
 async function cancelAlarm() {
@@ -391,13 +427,31 @@ export default function App() {
                   <BellRing className="w-5 h-5 text-primary" />
                   <span className="text-[length:var(--text-body-md)] font-inter font-medium text-on-surface">Lembretes Inteligentes</span>
                 </div>
-                <button 
+                <button
                   onClick={() => setRemindersEnabled(!remindersEnabled)}
                   className={`w-12 h-6 rounded-full relative flex items-center px-1 transition-colors duration-200 ${remindersEnabled ? 'bg-primary' : 'bg-surface-variant'}`}
                 >
                   <div className={`w-4 h-4 bg-white rounded-full transition-transform duration-200 shadow-sm ${remindersEnabled ? 'translate-x-6' : 'translate-x-0'}`} />
                 </button>
               </div>
+
+              {/* Debug: test push notification */}
+              <button
+                onClick={async () => {
+                  const sub = await getPushSubscription();
+                  if (!sub) { alert('Sem subscricão push. Verifique a permissão de notificações.'); return; }
+                  const res = await fetch(`${SERVER_URL}/api/push/test`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ subscription: sub }),
+                  });
+                  const data = await res.json();
+                  alert(res.ok ? 'Notificação de teste enviada! Aguarde 5 segundos.' : `Erro: ${data.error}`);
+                }}
+                className="w-full p-3 border border-dashed border-primary/40 rounded-2xl text-[length:var(--text-body-sm)] font-inter text-primary/70 hover:bg-primary/5 active:scale-98 transition-all"
+              >
+                Testar notificação push (debug)
+              </button>
             </div>
           </div>
         ) : (
