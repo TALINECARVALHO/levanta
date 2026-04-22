@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(grep -r \"service.*worker\\\\|workbox\\\\|sw\\\\|service-worker\" /c/Users/Taline/levanta --include=\"*.ts\" --include=\"*.tsx\" --include=\"*.js\" --include=\"*.json\" ! -path \"*/node_modules/*\")",
+      "Bash(npx tsc *)",
+      "Bash(npx vite *)",
+      "Bash(npm install *)",
+      "Bash(node -e \"const webpush = require\\('./node_modules/web-push'\\); const keys = webpush.generateVAPIDKeys\\(\\); console.log\\('PUBLIC:', keys.publicKey\\); console.log\\('PRIVATE:', keys.privateKey\\);\")",
+      "Bash(npm run *)",
+      "Bash(netstat -ano)",
+      "Bash(taskkill /PID 16040 /F)",
+      "Bash(taskkill /PID 18592 /F)",
+      "Bash(taskkill /PID 19404 /F)",
+      "Bash(taskkill /PID 16040 /F /T)",
+      "Bash(taskkill /PID 18592 /F /T)",
+      "Bash(taskkill /PID 19404 /F /T)",
+      "Bash(git init *)",
+      "Bash(git add *)"
+    ]
+  }
+}
